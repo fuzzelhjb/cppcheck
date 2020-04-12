@@ -34,7 +34,7 @@ struct ForwardTraversal {
             if (out)
                 *out = tok->link();
             return Progress::Skip;
-        } else if (Token::Match(tok, "?|&&|%oror%")) {
+        } else if (Token::Match(tok, "?|&&|%oror%") && tok->astOperand1() && tok->astOperand2()) {
             if (traverseConditional(tok, f, traverseUnknown) == Progress::Break)
                 return Progress::Break;
             if (out)
@@ -58,22 +58,24 @@ struct ForwardTraversal {
     }
 
     template<class T, REQUIRES("T must be a Token class", std::is_convertible<T*, const Token*>)>
-    Progress traverseRecursive(T* tok, std::function<Progress(T*)> f, bool traverseUnknown) {
+    Progress traverseRecursive(T* tok, std::function<Progress(T*)> f, bool traverseUnknown, unsigned int recursion=0) {
         if (!tok)
             return Progress::Continue;
-        if (tok->astOperand1() && traverseRecursive(tok->astOperand1(), f, traverseUnknown) == Progress::Break)
+        if (recursion > 10000)
+            return Progress::Skip;
+        if (tok->astOperand1() && traverseRecursive(tok->astOperand1(), f, traverseUnknown, recursion+1) == Progress::Break)
             return Progress::Break;
         Progress p = traverseTok(tok, f, traverseUnknown);
         if (p == Progress::Break)
             return Progress::Break;
-        if (p == Progress::Continue && traverseRecursive(tok->astOperand2(), f, traverseUnknown) == Progress::Break)
+        if (p == Progress::Continue && traverseRecursive(tok->astOperand2(), f, traverseUnknown, recursion+1) == Progress::Break)
             return Progress::Break;
         return Progress::Continue;
     }
 
     template<class T, class F, REQUIRES("T must be a Token class", std::is_convertible<T*, const Token*>)>
     Progress traverseConditional(T* tok, F f, bool traverseUnknown) {
-        if (Token::Match(tok, "?|&&|%oror%")) {
+        if (Token::Match(tok, "?|&&|%oror%") && tok->astOperand1() && tok->astOperand2()) {
             T* condTok = tok->astOperand1();
             T* childTok = tok->astOperand2();
             bool checkThen, checkElse;

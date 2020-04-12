@@ -2021,10 +2021,9 @@ bool CheckClass::isConstMemberFunc(const Scope *scope, const Token *tok) const
     return false;
 }
 
-namespace {
-    // The container contains the STL types whose operator[] is not a const.
-    const std::set<std::string> stl_containers_not_const = { "map", "unordered_map" };
-}
+
+// The container contains the STL types whose operator[] is not a const.
+static const std::set<std::string> stl_containers_not_const = { "map", "unordered_map" };
 
 bool CheckClass::checkConstFunc(const Scope *scope, const Function *func, bool& memberAccessed) const
 {
@@ -2048,7 +2047,7 @@ bool CheckClass::checkConstFunc(const Scope *scope, const Function *func, bool& 
                     if (lhs->previous()->variable()->typeStartToken()->strAt(-1) != "const" && lhs->previous()->variable()->isPointer())
                         return false;
                 }
-            } else if (lhs->str() == ":" && lhs->astParent() && lhs->astParent()->str() == "(" && tok1->strAt(1) == ")") { // range-based for-loop (C++11)
+            } else if (lhs->str() == ":" && lhs->astParent() && lhs->astParent()->str() == "(") { // range-based for-loop (C++11)
                 // TODO: We could additionally check what is done with the elements to avoid false negatives. Here we just rely on "const" keyword being used.
                 if (lhs->astParent()->strAt(1) != "const")
                     return false;

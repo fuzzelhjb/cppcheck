@@ -1534,13 +1534,15 @@ void Tokenizer::simplifyTypedef()
                                 tok2 = tok2->next();
 
                             // reference or pointer to array?
-                            if (tok2->str() == "&" || tok2->str() == "*") {
+                            if (Token::Match(tok2, "&|*|&&")) {
                                 tok2 = tok2->previous();
                                 tok2->insertToken("(");
                                 Token *tok3 = tok2->next();
 
                                 // handle missing variable name
-                                if (tok2->strAt(3) == ")" || tok2->strAt(3) == "," || tok2->strAt(3) == "(")
+                                if (Token::Match(tok3, "( *|&|&& *|&|&& %name%"))
+                                    tok2 = tok3->tokAt(3);
+                                else if (Token::Match(tok2->tokAt(3), "[(),]"))
                                     tok2 = tok2->tokAt(2);
                                 else
                                     tok2 = tok2->tokAt(3);
@@ -3040,7 +3042,7 @@ static bool setVarIdParseDeclaration(const Token **tok, const std::map<std::stri
             }
         } else if (Token::Match(tok2, "&|&&")) {
             ref = !bracket;
-        } else if (singleNameCount == 1 && Token::Match(tok2, "( [*&]") && Token::Match(tok2->link()->next(), "(|[")) {
+        } else if (singleNameCount >= 1 && Token::Match(tok2, "( [*&]") && Token::Match(tok2->link()->next(), "(|[")) {
             bracket = true; // Skip: Seems to be valid pointer to array or function pointer
         } else if (tok2->str() == "::") {
             singleNameCount = 0;
@@ -6500,10 +6502,22 @@ void Tokenizer::simplifyFunctionPointers()
 
         // ok simplify this function pointer to an ordinary pointer
         Token::eraseTokens(tok->link(), endTok->next());
-        tok->link()->deleteThis();
-        while (Token::Match(tok, "( %type% ::"))
-            tok->deleteNext(2);
-        tok->deleteThis();
+        if (Token::simpleMatch(tok->link()->previous(), ") )")) {
+            // Function returning function pointer
+            // void (*dostuff(void))(void) {}
+            tok->link()->deleteThis();
+            tok->deleteThis();
+        } else {
+            // Function pointer variable
+            // void (*p)(void) {}
+            tok->link()->insertToken("(");
+            Token *par1 = tok->link()->next();
+            par1->insertToken(")");
+            par1->link(par1->next());
+            par1->next()->link(par1);
+            while (Token::Match(tok, "( %type% ::"))
+                tok->deleteNext(2);
+        }
     }
 }
 
@@ -6730,8 +6744,17 @@ void Tokenizer::simplifyVarDecl(Token * tokBegin, const Token * const tokEnd, co
                 }
                 varName = varName->next();
             }
+            // Function pointer
+            if (Token::simpleMatch(varName, "( *") && Token::Match(varName->link()->previous(), "%name% ) ( ) =")) {
+                Token *endDecl = varName->link()->tokAt(2);
+                varName = varName->link()->previous();
+                endDecl->insertToken(";");
+                endDecl = endDecl->next();
+                endDecl->insertToken(varName->str());
+                continue;
+            }
             //non-VLA case
-            if (Token::Match(varName, "%name% ,|=")) {
+            else if (Token::Match(varName, "%name% ,|=")) {
                 if (varName->str() != "operator") {
                     tok2 = varName->next(); // The ',' or '=' token
 
@@ -9461,6 +9484,26 @@ void Tokenizer::findGarbageCode() const
         }
     }
 
+    // Keywords in global scope
+    std::set<std::string> nonGlobalKeywords{"break",
+                                            "continue",
+                                            "for",
+                                            "goto",
+                                            "if",
+                                            "return",
+                                            "switch",
+                                            "while"};
+    if (isCPP()) {
+        nonGlobalKeywords.insert("try");
+        nonGlobalKeywords.insert("catch");
+    }
+    for (const Token *tok = tokens(); tok; tok = tok->next()) {
+        if (tok->str() == "{")
+            tok = tok->link();
+        else if (tok->isName() && nonGlobalKeywords.count(tok->str()) && !Token::Match(tok->tokAt(-2), "operator %str%"))
+            syntaxError(tok, "keyword '" + tok->str() + "' is not allowed in global scope");
+    }
+
     // keyword keyword
     const std::set<std::string> nonConsecutiveKeywords{"break",
         "continue",
@@ -9606,6 +9649,8 @@ void Tokenizer::findGarbageCode() const
         }
         if (Token::Match(tok, "[!|+-/%^~] )|]"))
             syntaxError(tok);
+        if (Token::Match(tok, "==|!=|<=|>= %comp%"))
+            syntaxError(tok, tok->str() + " " + tok->strAt(1));
     }
 
     // ternary operator without :

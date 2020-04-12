@@ -594,6 +594,11 @@ static bool isPartOfClassStructUnion(const Token* tok)
     return false;
 }
 
+static bool isVarDecl(const Token *tok)
+{
+    return tok && tok->variable() && tok->variable()->nameToken() == tok;
+}
+
 // Skip [ .. ]
 static const Token * skipBrackets(const Token *tok)
 {
@@ -1047,11 +1052,11 @@ void CheckUnusedVar::checkFunctionVariableUsage_iterateScopes(const Scope* const
                 variables.use(tok->astOperand2()->varId(), tok->astOperand2());
         }
 
-        else if (tok->isExtendedOp() && tok->next() && tok->next()->varId() && tok->strAt(2) != "=") {
+        else if (tok->isExtendedOp() && tok->next() && tok->next()->varId() && tok->strAt(2) != "=" && !isVarDecl(tok->next())) {
             variables.readAll(tok->next()->varId(), tok);
         }
 
-        else if (tok->varId() && tok->next() && (tok->next()->str() == ")" || tok->next()->isExtendedOp())) {
+        else if (tok->varId() && !isVarDecl(tok) && tok->next() && (tok->next()->str() == ")" || tok->next()->isExtendedOp())) {
             if (Token::Match(tok->tokAt(-2), "%name% ( %var% [,)]") &&
                 !(tok->tokAt(-2)->variable() && tok->tokAt(-2)->variable()->isReference()))
                 variables.use(tok->varId(), tok);
@@ -1399,6 +1404,8 @@ void CheckUnusedVar::checkStructMemberUsage()
 
             // Check if the struct member variable is used anywhere in the file
             if (Token::findsimplematch(mTokenizer->tokens(), (". " + var.name()).c_str()))
+                continue;
+            if (Token::findsimplematch(mTokenizer->tokens(), (":: " + var.name()).c_str()))
                 continue;
 
             unusedStructMemberError(var.nameToken(), scope.className, var.name(), scope.type == Scope::eUnion);
